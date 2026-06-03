@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/nextauth";
 import AppShell from "@/app/components/AppShell";
 import CourseForm from "@/app/components/CourseForm";
+import { canEditAcademy } from "@/lib/academy-permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,7 @@ export default async function TrainingCoursePage({ params }: { params: Promise<R
 
   const userEmail = session.user.email;
   const userRole = (session.user as { role?: string }).role ?? "";
+  const canEdit = canEditAcademy(userRole);
   const userName = session.user.name ?? null;
 
   return (
@@ -37,6 +39,7 @@ export default async function TrainingCoursePage({ params }: { params: Promise<R
         courseNum={n}
         storageKey={`academy.training.${course}.meta`}
         editorHref={`/academy/training/${course}/editor`}
+        canEdit={canEdit}
       />
     </AppShell>
   );
