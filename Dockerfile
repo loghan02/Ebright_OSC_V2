@@ -9,12 +9,16 @@ RUN apk add --no-cache openssl
 COPY package*.json ./
 RUN npm ci
 
-# Generate Prisma client against the Linux target (host generates against Windows)
+# Generate Prisma clients against the Linux target (host generates against Windows)
 COPY prisma ./prisma/
 RUN npx prisma generate
 
-# Source + build
+# Source + sms_syllabus Prisma client (writes to src/generated/, must happen
+# before `npm run build` because the build imports the generated types).
+# Uses a placeholder URL — generate does not connect; runtime reads the real
+# SMS_SYLLABUS_DATABASE_URL from env_file at container start.
 COPY . .
+RUN npx prisma generate --config=prisma/sms-syllabus/prisma.config.ts
 RUN NODE_OPTIONS="--max-old-space-size=2048" npm run build
 
 # Drop to non-root user
