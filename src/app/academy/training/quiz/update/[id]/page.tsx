@@ -1,17 +1,26 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/nextauth";
 import { canEditAcademy } from "@/lib/academy-permissions";
 import AppShell from "@/app/components/AppShell";
-import UpdateQuizesList from "@/app/components/UpdateQuizesList";
+import QuizBuilder from "@/app/components/QuizBuilder";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = {
-  title: "Update Quizes",
-};
+interface RouteParams {
+  id: string;
+}
 
-export default async function UpdateQuizesPage() {
+export async function generateMetadata({ params }: { params: Promise<RouteParams> }) {
+  const { id } = await params;
+  return { title: `Update Quiz · ${id}` };
+}
+
+export default async function UpdateQuizPage({ params }: { params: Promise<RouteParams> }) {
+  const { id } = await params;
+  const quizId = Number.parseInt(id, 10);
+  if (!Number.isFinite(quizId) || quizId <= 0) notFound();
+
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) redirect("/login");
 
@@ -22,7 +31,7 @@ export default async function UpdateQuizesPage() {
 
   return (
     <AppShell email={userEmail} role={userRole} name={userName}>
-      <UpdateQuizesList canEdit={canEdit} />
+      <QuizBuilder editQuizId={quizId} canEdit={canEdit} />
     </AppShell>
   );
 }

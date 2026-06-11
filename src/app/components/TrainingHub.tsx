@@ -77,7 +77,8 @@ export default function TrainingHub({ canEdit = true }: TrainingHubProps = {}) {
           items={[
             { label: "Home", href: "/home" },
             { label: "Academy", href: "/academy" },
-            { label: "Training" },
+            { label: "Training", href: "/academy/training" },
+            { label: "Courses" },
           ]}
         />
         <header className="mb-10">

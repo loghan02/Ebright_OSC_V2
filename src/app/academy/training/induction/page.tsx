@@ -1,40 +1,38 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/nextauth";
+import { canEditAcademy } from "@/lib/academy-permissions";
 import AppShell from "@/app/components/AppShell";
 import ChapterCanvas from "@/app/components/ChapterCanvas";
-import { canEditAcademy } from "@/lib/academy-permissions";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Lessons",
+  title: "Induction",
 };
 
-export default async function SchedulePage() {
+export default async function TrainingInductionPage() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) redirect("/login");
 
   const userEmail = session.user.email;
   const userRole = (session.user as { role?: string }).role ?? "";
-  const canEdit = canEditAcademy(userRole);
   const userName = session.user.name ?? null;
+  const canEdit = canEditAcademy(userRole);
 
   return (
     <AppShell email={userEmail} role={userRole} name={userName}>
       <ChapterCanvas
-        backHref="/academy/ebright-class-syllabus/user"
-        label="LESSONS"
-        storageKey="academy.ebright-class-syllabus.user.schedule"
+        label="INDUCTION"
+        storageKey="academy.training.induction"
         pageCount={2}
-        theme="amber"
+        theme="teal"
         canEdit={canEdit}
         breadcrumb={[
           { label: "Home", href: "/home" },
           { label: "Academy", href: "/academy" },
-          { label: "Ebright Class Syllabus", href: "/academy/ebright-class-syllabus" },
-          { label: "User", href: "/academy/ebright-class-syllabus/user" },
-          { label: "Lessons" },
+          { label: "Training", href: "/academy/training" },
+          { label: "Induction" },
         ]}
       />
     </AppShell>

@@ -12,6 +12,10 @@ function createClient() {
   const adapter = new PrismaPg({
     connectionString: process.env.DATABASE_URL,
     options: "-c TimeZone=UTC",
+    // The server is shared with multiple databases (hrfs, ebrightleads_db,
+    // sms_syllabus) and HeidiSQL sessions. Cap our pool to keep
+    // `max_connections` headroom for everyone.
+    max: 5,
   });
   return new PrismaClient({ adapter });
 }

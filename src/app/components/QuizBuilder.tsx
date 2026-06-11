@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Check,
   Send,
@@ -20,8 +21,7 @@ import {
 } from "lucide-react";
 import { BRANCHES } from "./branches";
 import Breadcrumb from "./Breadcrumb";
-
-const STORAGE_KEY = "academy.user.quizzes";
+import { saveQuiz, loadQuiz, type QuestionInput } from "@/app/academy/training/quiz/actions";
 
 type QuestionType =
   | "multiple-choice"
@@ -44,19 +44,6 @@ interface Question {
   imageAlt?: string;
 }
 
-interface Quiz {
-  id: string;
-  title: string;
-  description: string;
-  questions: Question[];
-  questionCount: number;
-  status: "draft" | "published";
-  publishedBranches?: string[];
-  publishedAt?: number;
-  createdAt: number;
-  updatedAt: number;
-}
-
 const QUESTION_TYPES: { value: QuestionType; label: string }[] = [
   { value: "multiple-choice", label: "Multiple choice" },
   { value: "checkboxes", label: "Checkboxes" },
@@ -68,7 +55,7 @@ const QUESTION_TYPES: { value: QuestionType; label: string }[] = [
 const newId = () => `q_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
 interface QuizBuilderProps {
-  editQuizId?: string;
+  editQuizId?: number;
   canEdit?: boolean;
 }
 
@@ -110,7 +97,8 @@ const makeSectionBlock = (): Question => ({
 });
 
 export default function QuizBuilder({ editQuizId, canEdit = true }: QuizBuilderProps = {}) {
-  const quizIdRef = useRef<string>(editQuizId ?? newId());
+  const router = useRouter();
+  const [currentQuizId, setCurrentQuizId] = useState<number | null>(editQuizId ?? null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [questions, setQuestions] = useState<Question[]>([makeQuestion()]);
@@ -120,33 +108,40 @@ export default function QuizBuilder({ editQuizId, canEdit = true }: QuizBuilderP
   const [showSettings, setShowSettings] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
   const [selectedBranches, setSelectedBranches] = useState<Set<string>>(() => new Set());
   const [confirmPublish, setConfirmPublish] = useState(false);
 
-  // If editing an existing quiz, hydrate state from localStorage on mount
+  // If editing an existing quiz, hydrate state from the database on mount
   useEffect(() => {
     if (!editQuizId) return;
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const arr: Quiz[] = raw ? JSON.parse(raw) : [];
-      const quiz = arr.find((q) => q.id === editQuizId);
-      if (!quiz) return;
-      quizIdRef.current = quiz.id;
+    let cancelled = false;
+    (async () => {
+      const result = await loadQuiz(editQuizId);
+      if (cancelled || !result.ok) return;
+      const quiz = result.data;
       setTitle(quiz.title);
-      setDescription(quiz.description ?? "");
+      setDescription(quiz.description);
       setQuestions(
-        Array.isArray(quiz.questions) && quiz.questions.length > 0
-          ? quiz.questions
+        quiz.questions.length > 0
+          ? quiz.questions.map((q): Question => ({
+              id: newId(),
+              title: q.prompt,
+              description: q.meta?.description,
+              type: q.type,
+              options: q.options.map((o) => o.label),
+              required: q.is_required,
+              imageSrc: q.meta?.imageSrc,
+              imageAlt: q.meta?.imageAlt,
+            }))
           : [makeQuestion()],
       );
-      if (quiz.publishedBranches) {
-        setSelectedBranches(new Set(quiz.publishedBranches));
-      }
-    } catch {
-      // ignore
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      setSelectedBranches(new Set(quiz.publishedBranches));
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [editQuizId]);
 
   const pushHistory = () => {
@@ -236,44 +231,50 @@ export default function QuizBuilder({ editQuizId, canEdit = true }: QuizBuilderP
     setQuestions(next);
   };
 
-  const persist = (status: "draft" | "published", branches?: string[]) => {
-    const now = Date.now();
-    const quiz: Quiz = {
-      id: quizIdRef.current,
+  const persist = async (status: "draft" | "published", branches?: string[]) => {
+    setSaveError(null);
+    const wasNewQuiz = currentQuizId === null;
+    const payload = {
+      quizId: currentQuizId ?? undefined,
       title: title.trim() || "Untitled form",
       description,
-      questions,
-      questionCount: questions.length,
+      questions: questions.map(
+        (q): QuestionInput => ({
+          title: q.title,
+          description: q.description,
+          type: q.type,
+          options: q.options,
+          required: q.required,
+          imageSrc: q.imageSrc,
+          imageAlt: q.imageAlt,
+        }),
+      ),
       status,
       publishedBranches: status === "published" ? branches ?? [] : undefined,
-      publishedAt: status === "published" ? now : undefined,
-      createdAt: now,
-      updatedAt: now,
     };
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const arr: Quiz[] = raw ? JSON.parse(raw) : [];
-      const idx = arr.findIndex((q) => q.id === quiz.id);
-      if (idx >= 0) {
-        arr[idx] = { ...arr[idx], ...quiz, createdAt: arr[idx].createdAt };
-      } else {
-        arr.push(quiz);
-      }
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
-      setSavedAt(now);
-    } catch {
-      // ignore
+    const result = await saveQuiz(payload);
+    if (!result.ok) {
+      setSaveError(result.error);
+      return;
+    }
+    setCurrentQuizId(result.data.quizId);
+    setSavedAt(Date.now());
+    if (wasNewQuiz) {
+      // Move from /create to /update/[id] so reloads bring this quiz back.
+      router.replace(`/academy/training/quiz/update/${result.data.quizId}`);
     }
   };
 
-  const handleSave = () => persist("draft");
+  const handleSave = () => {
+    void persist("draft");
+  };
   const handleOpenPublish = () => {
     setSelectedBranches(new Set());
     setConfirmPublish(false);
     setPublishOpen(true);
   };
   const handleConfirmedPublish = () => {
-    persist("published", Array.from(selectedBranches));
+    void persist("published", Array.from(selectedBranches));
     setPublishOpen(false);
     setConfirmPublish(false);
     setSelectedBranches(new Set());
@@ -309,9 +310,8 @@ export default function QuizBuilder({ editQuizId, canEdit = true }: QuizBuilderP
           items={[
             { label: "Home", href: "/home" },
             { label: "Academy", href: "/academy" },
-            { label: "Ebright Class Syllabus", href: "/academy/ebright-class-syllabus" },
-            { label: "User", href: "/academy/ebright-class-syllabus/user" },
-            { label: "Quiz", href: "/academy/ebright-class-syllabus/user/quiz" },
+            { label: "Training", href: "/academy/training" },
+            { label: "Quiz", href: "/academy/training/quiz" },
             { label: editQuizId ? "Update Quiz" : "Create Quiz" },
           ]}
         />
@@ -322,7 +322,12 @@ export default function QuizBuilder({ editQuizId, canEdit = true }: QuizBuilderP
             <span>CREATE QUIZ</span>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            {savedAt && (
+            {saveError && (
+              <span className="text-xs text-rose-600 font-medium mr-2" role="alert">
+                Save failed: {saveError}
+              </span>
+            )}
+            {!saveError && savedAt && (
               <span className="text-xs text-slate-500 mr-2">
                 Saved {new Date(savedAt).toLocaleTimeString()}
               </span>

@@ -1,12 +1,19 @@
 import type { Session } from "next-auth";
 
 export const ACADEMY_EDIT_ROLES = ["superadmin", "ceo"] as const;
+export const ACADEMY_COACH_ROLES = ["superadmin", "ceo", "staff"] as const;
 
 type AcademyEditRole = (typeof ACADEMY_EDIT_ROLES)[number];
+type AcademyCoachRole = (typeof ACADEMY_COACH_ROLES)[number];
 
 export function canEditAcademy(role: string | null | undefined): boolean {
   if (!role) return false;
   return (ACADEMY_EDIT_ROLES as readonly string[]).includes(role.toLowerCase());
+}
+
+export function canCoachCourse(role: string | null | undefined): boolean {
+  if (!role) return false;
+  return (ACADEMY_COACH_ROLES as readonly string[]).includes(role.toLowerCase());
 }
 
 /**
@@ -24,4 +31,4 @@ export function requireAcademyEditor(session: Session | null): void {
   }
 }
 
-export type { AcademyEditRole };
+export type { AcademyEditRole, AcademyCoachRole };

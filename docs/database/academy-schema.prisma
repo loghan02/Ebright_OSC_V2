@@ -1,0 +1,322 @@
+// =============================================================================
+// Academy schema additions
+// Paste the model blocks below into prisma/schema.prisma, then also add the
+// listed back-references to the existing `users` and `branch` models.
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 1. Shared document storage (ChapterCanvas content)
+// -----------------------------------------------------------------------------
+
+model academy_document {
+  document_id        Int      @id @default(autoincrement())
+  storage_key        String   @unique @db.VarChar(255)
+  content            Json     @db.JsonB
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime @updatedAt @db.Timestamptz(6)
+  updated_by_user_id Int?
+  users              users?   @relation(fields: [updated_by_user_id], references: [user_id], onDelete: SetNull, onUpdate: NoAction, map: "fk_academy_doc_user")
+}
+
+// -----------------------------------------------------------------------------
+// 2. SyllabusTable editable cells (JNR/MDR/SNR Grade 1-8 ENROL/FINISHED/BALANCE)
+// -----------------------------------------------------------------------------
+
+model academy_syllabus_table {
+  table_id    Int      @id @default(autoincrement())
+  storage_key String   @unique @db.VarChar(255)
+  cells       Json     @db.JsonB
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @updatedAt @db.Timestamptz(6)
+}
+
+// -----------------------------------------------------------------------------
+// 3. USER UI table rows (per user)
+// -----------------------------------------------------------------------------
+
+model academy_user_ui_row {
+  row_id           Int       @id @default(autoincrement())
+  user_id          Int
+  position         Int       @default(0)
+  no               String?   @db.VarChar(50)
+  month            String?   @db.VarChar(50)
+  name             String?   @db.VarChar(255)
+  notes            String?
+  hyperlink        String?
+  status           String    @default("INCOMPLETE") @db.VarChar(20)
+
+  // Inlined optional file attachment (NOTES column)
+  file_name        String?   @db.VarChar(255)
+  file_mime        String?   @db.VarChar(100)
+  file_size        Int?
+  file_url         String?
+  file_uploaded_at DateTime? @db.Timestamptz(6)
+
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @updatedAt @db.Timestamptz(6)
+
+  users            users     @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_user_ui_row_user")
+
+  @@index([user_id], map: "idx_user_ui_row_user")
+}
+
+// -----------------------------------------------------------------------------
+// 4. Training: course slots
+// -----------------------------------------------------------------------------
+
+model academy_training_course {
+  course_id           Int       @id @default(autoincrement())
+  course_number       Int       @unique
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  created_by_user_id  Int?
+  archived_at         DateTime? @db.Timestamptz(6)
+
+  users               users?    @relation(fields: [created_by_user_id], references: [user_id], onDelete: SetNull, onUpdate: NoAction, map: "fk_course_creator")
+  videos              academy_course_video[]
+  exercises           academy_course_exercise[]
+  submissions         academy_course_submission[]
+}
+
+// -----------------------------------------------------------------------------
+// 5. Training: course video URLs
+// -----------------------------------------------------------------------------
+
+model academy_course_video {
+  video_id   Int      @id @default(autoincrement())
+  course_id  Int
+  title      String?  @db.VarChar(255)
+  video_url  String
+  position   Int      @default(0)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @updatedAt @db.Timestamptz(6)
+
+  course     academy_training_course @relation(fields: [course_id], references: [course_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_course_video_course")
+
+  @@index([course_id], map: "idx_course_video_course")
+}
+
+// -----------------------------------------------------------------------------
+// 6. Training: course exercises
+// -----------------------------------------------------------------------------
+
+model academy_course_exercise {
+  exercise_id   Int      @id @default(autoincrement())
+  course_id     Int
+  position      Int      @default(0)
+  instructions  String
+
+  // Inlined optional coach attachment
+  file_name     String?  @db.VarChar(255)
+  file_mime     String?  @db.VarChar(100)
+  file_size     Int?
+  file_url      String?
+
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @updatedAt @db.Timestamptz(6)
+
+  course        academy_training_course @relation(fields: [course_id], references: [course_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_exercise_course")
+  answers       academy_exercise_answer[]
+  marks         academy_exercise_mark[]
+
+  @@index([course_id], map: "idx_exercise_course")
+}
+
+// -----------------------------------------------------------------------------
+// 7. Training: student text answers
+// -----------------------------------------------------------------------------
+
+model academy_exercise_answer {
+  answer_id   Int      @id @default(autoincrement())
+  exercise_id Int
+  user_id     Int
+  answer_text String
+  answered_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @updatedAt @db.Timestamptz(6)
+
+  exercise    academy_course_exercise @relation(fields: [exercise_id], references: [exercise_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_answer_exercise")
+  users       users    @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_answer_student")
+
+  @@unique([exercise_id, user_id], map: "uq_answer_exercise_student")
+  @@index([user_id], map: "idx_answer_student")
+}
+
+// -----------------------------------------------------------------------------
+// 8. Training: student file uploads (per course, not per exercise)
+// -----------------------------------------------------------------------------
+
+model academy_course_submission {
+  submission_id Int      @id @default(autoincrement())
+  course_id     Int
+  user_id       Int
+
+  file_name     String   @db.VarChar(255)
+  file_mime     String   @db.VarChar(100)
+  file_size     Int?
+  file_url      String
+  uploaded_at   DateTime @default(now()) @db.Timestamptz(6)
+
+  course        academy_training_course @relation(fields: [course_id], references: [course_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_submission_course")
+  users         users    @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_submission_student")
+
+  @@index([course_id, user_id], map: "idx_submission_course_student")
+}
+
+// -----------------------------------------------------------------------------
+// 9. Training: coach marks (score + comment) on student answers
+// -----------------------------------------------------------------------------
+
+model academy_exercise_mark {
+  mark_id            Int      @id @default(autoincrement())
+  exercise_id        Int
+  user_id            Int       // student being marked
+  score              String?  @db.VarChar(50)
+  comment            String?
+  marked_at          DateTime @default(now()) @db.Timestamptz(6)
+  marked_by_user_id  Int       // coach
+
+  exercise           academy_course_exercise @relation(fields: [exercise_id], references: [exercise_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_mark_exercise")
+  student            users    @relation("mark_student", fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_mark_student")
+  coach              users    @relation("mark_coach", fields: [marked_by_user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_mark_coach")
+
+  @@unique([exercise_id, user_id], map: "uq_mark_exercise_student")
+  @@index([marked_by_user_id], map: "idx_mark_coach")
+}
+
+// -----------------------------------------------------------------------------
+// 10. Quiz definitions
+// -----------------------------------------------------------------------------
+
+model academy_quiz {
+  quiz_id            Int       @id @default(autoincrement())
+  title              String    @db.VarChar(255)
+  description        String?
+  settings           Json?     @db.JsonB // arbitrary quiz-level config (anonymous, time limit, etc.)
+  is_published       Boolean   @default(false)
+  published_at       DateTime? @db.Timestamptz(6)
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(6)
+  created_by_user_id Int
+
+  users              users     @relation(fields: [created_by_user_id], references: [user_id], onDelete: Restrict, onUpdate: NoAction, map: "fk_quiz_creator")
+  questions          academy_quiz_question[]
+  branches           academy_quiz_branch[]
+  submissions        academy_quiz_submission[]
+
+  @@index([created_by_user_id], map: "idx_quiz_creator")
+}
+
+// -----------------------------------------------------------------------------
+// 11. Quiz questions (typed; per-type extras in meta JSONB)
+// -----------------------------------------------------------------------------
+
+model academy_quiz_question {
+  question_id Int      @id @default(autoincrement())
+  quiz_id     Int
+  position    Int      @default(0)
+  type        String   @db.VarChar(30) // multiple-choice | checkboxes | short-answer | paragraph | dropdown | title-block | image | section
+  prompt      String
+  is_required Boolean  @default(false)
+  meta        Json?    @db.JsonB       // type-specific extras (e.g. image URL, section description)
+
+  quiz        academy_quiz @relation(fields: [quiz_id], references: [quiz_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_question_quiz")
+  options     academy_quiz_question_option[]
+  answers     academy_quiz_answer[]
+
+  @@index([quiz_id], map: "idx_question_quiz")
+}
+
+// -----------------------------------------------------------------------------
+// 12. Quiz question options (for multiple-choice / checkboxes / dropdown)
+// -----------------------------------------------------------------------------
+
+model academy_quiz_question_option {
+  option_id   Int      @id @default(autoincrement())
+  question_id Int
+  position    Int      @default(0)
+  label       String
+  is_correct  Boolean  @default(false)
+
+  question    academy_quiz_question @relation(fields: [question_id], references: [question_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_option_question")
+
+  @@index([question_id], map: "idx_option_question")
+}
+
+// -----------------------------------------------------------------------------
+// 13. Quiz-to-branch publish targets (M:N)
+// -----------------------------------------------------------------------------
+
+model academy_quiz_branch {
+  quiz_id   Int
+  branch_id Int
+
+  quiz      academy_quiz @relation(fields: [quiz_id], references: [quiz_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quiz_branch_quiz")
+  branch    branch       @relation(fields: [branch_id], references: [branch_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quiz_branch_branch")
+
+  @@id([quiz_id, branch_id])
+}
+
+// -----------------------------------------------------------------------------
+// 14. Quiz submissions (one per (quiz, student, branch))
+// -----------------------------------------------------------------------------
+
+model academy_quiz_submission {
+  submission_id Int      @id @default(autoincrement())
+  quiz_id       Int
+  user_id       Int
+  branch_id     Int?     // nullable if quiz isn't branch-scoped
+  submitted_at  DateTime @default(now()) @db.Timestamptz(6)
+  score         Decimal? @db.Decimal(6, 2)
+
+  quiz          academy_quiz @relation(fields: [quiz_id], references: [quiz_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_submission_quiz")
+  users         users    @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_submission_student_quiz")
+  branch        branch?  @relation(fields: [branch_id], references: [branch_id], onDelete: SetNull, onUpdate: NoAction, map: "fk_submission_branch")
+  answers       academy_quiz_answer[]
+
+  @@unique([quiz_id, user_id, branch_id], map: "uq_quiz_submission_student_branch")
+  @@index([quiz_id], map: "idx_quiz_submission_quiz")
+  @@index([user_id], map: "idx_quiz_submission_user")
+  @@index([branch_id], map: "idx_quiz_submission_branch")
+}
+
+// -----------------------------------------------------------------------------
+// 15. Quiz answers within a submission
+// -----------------------------------------------------------------------------
+
+model academy_quiz_answer {
+  answer_id        Int     @id @default(autoincrement())
+  submission_id    Int
+  question_id      Int
+  text_answer      String?
+  selected_options Int[]                          // option_ids chosen for MC/checkbox/dropdown
+  is_correct       Boolean?                       // null if not yet graded / not gradable
+
+  submission       academy_quiz_submission @relation(fields: [submission_id], references: [submission_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quiz_answer_submission")
+  question         academy_quiz_question @relation(fields: [question_id], references: [question_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quiz_answer_question")
+
+  @@unique([submission_id, question_id], map: "uq_quiz_answer_submission_question")
+}
+
+// =============================================================================
+// BACK-REFERENCES TO ADD TO EXISTING MODELS
+// =============================================================================
+//
+// Add the following array fields inside the EXISTING `users` model in
+// schema.prisma:
+//
+//   academy_documents          academy_document[]
+//   academy_user_ui_rows       academy_user_ui_row[]
+//   academy_courses_created    academy_training_course[]
+//   academy_exercise_answers   academy_exercise_answer[]
+//   academy_course_submissions academy_course_submission[]
+//   academy_marks_as_student   academy_exercise_mark[] @relation("mark_student")
+//   academy_marks_as_coach     academy_exercise_mark[] @relation("mark_coach")
+//   academy_quizzes_created    academy_quiz[]
+//   academy_quiz_submissions   academy_quiz_submission[]
+//
+// Add the following array fields inside the EXISTING `branch` model in
+// schema.prisma:
+//
+//   academy_quiz_branches      academy_quiz_branch[]
+//   academy_quiz_submissions   academy_quiz_submission[]
+//
+// =============================================================================

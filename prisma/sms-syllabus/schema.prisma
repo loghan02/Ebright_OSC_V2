@@ -1,0 +1,209 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../src/generated/sms-syllabus-client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model academy_document {
+  document_id        Int      @id @default(autoincrement())
+  storage_key        String   @unique @db.VarChar(255)
+  content            Json
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  updated_by_user_id Int?
+}
+
+model academy_syllabus_table {
+  table_id    Int      @id @default(autoincrement())
+  storage_key String   @unique @db.VarChar(255)
+  cells       Json
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+}
+
+model academy_user_ui_row {
+  row_id           Int       @id @default(autoincrement())
+  user_id          Int
+  position         Int       @default(0)
+  no               String?   @db.VarChar(50)
+  month            String?   @db.VarChar(50)
+  name             String?   @db.VarChar(255)
+  notes            String?
+  hyperlink        String?
+  status           String    @default("INCOMPLETE") @db.VarChar(20)
+  file_name        String?   @db.VarChar(255)
+  file_mime        String?   @db.VarChar(100)
+  file_size        Int?
+  file_url         String?
+  file_uploaded_at DateTime? @db.Timestamptz(6)
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([user_id], map: "idx_user_ui_row_user")
+}
+
+model academy_training_course {
+  course_id          Int                         @id @default(autoincrement())
+  course_number      Int                         @unique
+  created_at         DateTime                    @default(now()) @db.Timestamptz(6)
+  created_by_user_id Int?
+  archived_at        DateTime?                   @db.Timestamptz(6)
+  exercises          academy_course_exercise[]
+  submissions        academy_course_submission[]
+  videos             academy_course_video[]
+}
+
+model academy_course_video {
+  video_id   Int                     @id @default(autoincrement())
+  course_id  Int
+  title      String?                 @db.VarChar(255)
+  video_url  String
+  position   Int                     @default(0)
+  created_at DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at DateTime                @default(now()) @updatedAt @db.Timestamptz(6)
+  course     academy_training_course @relation(fields: [course_id], references: [course_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_course_video_course")
+
+  @@index([course_id], map: "idx_course_video_course")
+}
+
+model academy_course_exercise {
+  exercise_id  Int                       @id @default(autoincrement())
+  course_id    Int
+  position     Int                       @default(0)
+  instructions String
+  file_name    String?                   @db.VarChar(255)
+  file_mime    String?                   @db.VarChar(100)
+  file_size    Int?
+  file_url     String?
+  created_at   DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime                  @default(now()) @updatedAt @db.Timestamptz(6)
+  course       academy_training_course   @relation(fields: [course_id], references: [course_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_exercise_course")
+  answers      academy_exercise_answer[]
+  marks        academy_exercise_mark[]
+
+  @@index([course_id], map: "idx_exercise_course")
+}
+
+model academy_exercise_answer {
+  answer_id   Int                     @id @default(autoincrement())
+  exercise_id Int
+  user_id     Int
+  answer_text String
+  answered_at DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime                @default(now()) @updatedAt @db.Timestamptz(6)
+  exercise    academy_course_exercise @relation(fields: [exercise_id], references: [exercise_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_answer_exercise")
+
+  @@unique([exercise_id, user_id], map: "uq_answer_exercise_student")
+  @@index([user_id], map: "idx_answer_student")
+}
+
+model academy_course_submission {
+  submission_id Int                     @id @default(autoincrement())
+  course_id     Int
+  user_id       Int
+  file_name     String                  @db.VarChar(255)
+  file_mime     String                  @db.VarChar(100)
+  file_size     Int?
+  file_url      String
+  uploaded_at   DateTime                @default(now()) @db.Timestamptz(6)
+  course        academy_training_course @relation(fields: [course_id], references: [course_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_submission_course")
+
+  @@index([course_id, user_id], map: "idx_submission_course_student")
+}
+
+model academy_exercise_mark {
+  mark_id           Int                     @id @default(autoincrement())
+  exercise_id       Int
+  user_id           Int
+  score             String?                 @db.VarChar(50)
+  comment           String?
+  marked_at         DateTime                @default(now()) @db.Timestamptz(6)
+  marked_by_user_id Int
+  exercise          academy_course_exercise @relation(fields: [exercise_id], references: [exercise_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_mark_exercise")
+
+  @@unique([exercise_id, user_id], map: "uq_mark_exercise_student")
+  @@index([marked_by_user_id], map: "idx_mark_coach")
+}
+
+model academy_quiz {
+  quiz_id            Int                       @id @default(autoincrement())
+  title              String                    @db.VarChar(255)
+  description        String?
+  settings           Json?
+  is_published       Boolean                   @default(false)
+  published_at       DateTime?                 @db.Timestamptz(6)
+  created_at         DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime                  @default(now()) @updatedAt @db.Timestamptz(6)
+  created_by_user_id Int
+  branches           academy_quiz_branch[]
+  questions          academy_quiz_question[]
+  submissions        academy_quiz_submission[]
+
+  @@index([created_by_user_id], map: "idx_quiz_creator")
+}
+
+model academy_quiz_question {
+  question_id Int                            @id @default(autoincrement())
+  quiz_id     Int
+  position    Int                            @default(0)
+  type        String                         @db.VarChar(30)
+  prompt      String
+  is_required Boolean                        @default(false)
+  meta        Json?
+  answers     academy_quiz_answer[]
+  quiz        academy_quiz                   @relation(fields: [quiz_id], references: [quiz_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_question_quiz")
+  options     academy_quiz_question_option[]
+
+  @@index([quiz_id], map: "idx_question_quiz")
+}
+
+model academy_quiz_question_option {
+  option_id   Int                   @id @default(autoincrement())
+  question_id Int
+  position    Int                   @default(0)
+  label       String
+  is_correct  Boolean               @default(false)
+  question    academy_quiz_question @relation(fields: [question_id], references: [question_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_option_question")
+
+  @@index([question_id], map: "idx_option_question")
+}
+
+model academy_quiz_branch {
+  quiz_id   Int
+  branch_id Int
+  quiz      academy_quiz @relation(fields: [quiz_id], references: [quiz_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quiz_branch_quiz")
+
+  @@id([quiz_id, branch_id])
+}
+
+model academy_quiz_submission {
+  submission_id Int                   @id @default(autoincrement())
+  quiz_id       Int
+  user_id       Int
+  branch_id     Int?
+  submitted_at  DateTime              @default(now()) @db.Timestamptz(6)
+  score         Decimal?              @db.Decimal(6, 2)
+  answers       academy_quiz_answer[]
+  quiz          academy_quiz          @relation(fields: [quiz_id], references: [quiz_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_submission_quiz")
+
+  @@unique([quiz_id, user_id, branch_id], map: "uq_quiz_submission_student_branch")
+  @@index([quiz_id], map: "idx_quiz_submission_quiz")
+  @@index([user_id], map: "idx_quiz_submission_user")
+  @@index([branch_id], map: "idx_quiz_submission_branch")
+}
+
+model academy_quiz_answer {
+  answer_id        Int                     @id @default(autoincrement())
+  submission_id    Int
+  question_id      Int
+  text_answer      String?
+  selected_options Int[]                   @default([])
+  is_correct       Boolean?
+  question         academy_quiz_question   @relation(fields: [question_id], references: [question_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quiz_answer_question")
+  submission       academy_quiz_submission @relation(fields: [submission_id], references: [submission_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_quiz_answer_submission")
+
+  @@unique([submission_id, question_id], map: "uq_quiz_answer_submission_question")
+}

@@ -1,0 +1,302 @@
+-- =============================================================================
+-- sms_syllabus database — full schema for HeidiSQL (PostgreSQL)
+--
+-- Two-part script. Run PART 1 first, switch your HeidiSQL context to
+-- sms_syllabus, then run PART 2.
+--
+-- Why no FKs to users / branch?
+--   This database lives separately from your main app DB. user_id and
+--   branch_id columns reference users.user_id and branch.branch_id in your
+--   main app, but they are NOT foreign-key constrained here — referential
+--   integrity is enforced by application code.
+-- =============================================================================
+
+
+-- =============================================================================
+-- PART 1 — Create the database
+-- =============================================================================
+-- Run this single statement while connected to your default postgres database.
+-- After it succeeds:
+--   1. Refresh the database tree in HeidiSQL's left sidebar.
+--   2. Double-click "sms_syllabus" to switch context to it
+--      (or use the database dropdown at the top of the query tab).
+--   3. Then run PART 2 below.
+
+CREATE DATABASE sms_syllabus;
+
+
+-- =============================================================================
+-- PART 2 — Schema (run while connected to sms_syllabus)
+-- =============================================================================
+
+BEGIN;
+
+-- -----------------------------------------------------------------------------
+-- 1. academy_document — ChapterCanvas content blobs
+--    Used by: every A4 editor instance (chapter pages, INDUCTION,
+--    LEADERBOARD, USER MANUAL, course editor, etc.).
+--    Keyed by storage_key, e.g. "academy.jnr.grade-1.chapter-2".
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS academy_document (
+    document_id        SERIAL       PRIMARY KEY,
+    storage_key        VARCHAR(255) NOT NULL UNIQUE,
+    content            JSONB        NOT NULL,
+    created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_by_user_id INTEGER      NULL  -- logical FK to users.user_id (app DB)
+);
+
+-- -----------------------------------------------------------------------------
+-- 2. academy_syllabus_table — JNR/MDR/SNR Grade 1-8 editable cells
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS academy_syllabus_table (
+    table_id    SERIAL       PRIMARY KEY,
+    storage_key VARCHAR(255) NOT NULL UNIQUE,
+    cells       JSONB        NOT NULL,
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+-- -----------------------------------------------------------------------------
+-- 3. academy_user_ui_row — USER UI table rows (per user)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS academy_user_ui_row (
+    row_id           SERIAL       PRIMARY KEY,
+    user_id          INTEGER      NOT NULL,  -- logical FK to users.user_id
+    position         INTEGER      NOT NULL DEFAULT 0,
+    no               VARCHAR(50)  NULL,
+    month            VARCHAR(50)  NULL,
+    name             VARCHAR(255) NULL,
+    notes            TEXT         NULL,
+    hyperlink        TEXT         NULL,
+    status           VARCHAR(20)  NOT NULL DEFAULT 'INCOMPLETE',
+    file_name        VARCHAR(255) NULL,
+    file_mime        VARCHAR(100) NULL,
+    file_size        INTEGER      NULL,
+    file_url         TEXT         NULL,
+    file_uploaded_at TIMESTAMPTZ  NULL,
+    created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_user_ui_row_user ON academy_user_ui_row (user_id);
+
+-- -----------------------------------------------------------------------------
+-- 4. academy_training_course — course slots (course-1, course-2, …)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS academy_training_course (
+    course_id          SERIAL      PRIMARY KEY,
+    course_number      INTEGER     NOT NULL UNIQUE,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by_user_id INTEGER     NULL,  -- logical FK to users.user_id
+    archived_at        TIMESTAMPTZ NULL
+);
+
+-- -----------------------------------------------------------------------------
+-- 5. academy_course_video — video URLs per course
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS academy_course_video (
+    video_id   SERIAL       PRIMARY KEY,
+    course_id  INTEGER      NOT NULL,
+    title      VARCHAR(255) NULL,
+    video_url  TEXT         NOT NULL,
+    position   INTEGER      NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_course_video_course
+        FOREIGN KEY (course_id) REFERENCES academy_training_course (course_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_course_video_course ON academy_course_video (course_id);
+
+-- -----------------------------------------------------------------------------
+-- 6. academy_course_exercise — exercises per course
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS academy_course_exercise (
+    exercise_id  SERIAL       PRIMARY KEY,
+    course_id    INTEGER      NOT NULL,
+    position     INTEGER      NOT NULL DEFAULT 0,
+    instructions TEXT         NOT NULL,
+    file_name    VARCHAR(255) NULL,
+    file_mime    VARCHAR(100) NULL,
+    file_size    INTEGER      NULL,
+    file_url     TEXT         NULL,
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_exercise_course
+        FOREIGN KEY (course_id) REFERENCES academy_training_course (course_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_exercise_course ON academy_course_exercise (course_id);
+
+-- -----------------------------------------------------------------------------
+-- 7. academy_exercise_answer — student text answers
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS academy_exercise_answer (
+    answer_id   SERIAL      PRIMARY KEY,
+    exercise_id INTEGER     NOT NULL,
+    user_id     INTEGER     NOT NULL,  -- logical FK to users.user_id
+    answer_text TEXT        NOT NULL,
+    answered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_answer_exercise
+        FOREIGN KEY (exercise_id) REFERENCES academy_course_exercise (exercise_id) ON DELETE CASCADE,
+    CONSTRAINT uq_answer_exercise_student UNIQUE (exercise_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_answer_student ON academy_exercise_answer (user_id);
+
+-- -----------------------------------------------------------------------------
+-- 8. academy_course_submission — student file uploads (course-wide)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS academy_course_submission (
+    submission_id SERIAL       PRIMARY KEY,
+    course_id     INTEGER      NOT NULL,
+    user_id       INTEGER      NOT NULL,  -- logical FK to users.user_id
+    file_name     VARCHAR(255) NOT NULL,
+    file_mime     VARCHAR(100) NOT NULL,
+    file_size     INTEGER      NULL,
+    file_url      TEXT         NOT NULL,
+    uploaded_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_submission_course
+        FOREIGN KEY (course_id) REFERENCES academy_training_course (course_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_submission_course_student ON academy_course_submission (course_id, user_id);
+
+-- -----------------------------------------------------------------------------
+-- 9. academy_exercise_mark — coach marks (score + comment)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS academy_exercise_mark (
+    mark_id           SERIAL      PRIMARY KEY,
+    exercise_id       INTEGER     NOT NULL,
+    user_id           INTEGER     NOT NULL,  -- student (logical FK to users.user_id)
+    score             VARCHAR(50) NULL,
+    comment           TEXT        NULL,
+    marked_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    marked_by_user_id INTEGER     NOT NULL,  -- coach (logical FK to users.user_id)
+    CONSTRAINT fk_mark_exercise
+        FOREIGN KEY (exercise_id) REFERENCES academy_course_exercise (exercise_id) ON DELETE CASCADE,
+    CONSTRAINT uq_mark_exercise_student UNIQUE (exercise_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_mark_coach ON academy_exercise_mark (marked_by_user_id);
+
+-- -----------------------------------------------------------------------------
+-- 10. academy_quiz — quiz definitions
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS academy_quiz (
+    quiz_id            SERIAL       PRIMARY KEY,
+    title              VARCHAR(255) NOT NULL,
+    description        TEXT         NULL,
+    settings           JSONB        NULL,
+    is_published       BOOLEAN      NOT NULL DEFAULT FALSE,
+    published_at       TIMESTAMPTZ  NULL,
+    created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    created_by_user_id INTEGER      NOT NULL  -- logical FK to users.user_id
+);
+CREATE INDEX IF NOT EXISTS idx_quiz_creator ON academy_quiz (created_by_user_id);
+
+-- -----------------------------------------------------------------------------
+-- 11. academy_quiz_question — typed questions
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS academy_quiz_question (
+    question_id SERIAL      PRIMARY KEY,
+    quiz_id     INTEGER     NOT NULL,
+    position    INTEGER     NOT NULL DEFAULT 0,
+    type        VARCHAR(30) NOT NULL,  -- multiple-choice | checkboxes | short-answer | paragraph | dropdown | title-block | image | section
+    prompt      TEXT        NOT NULL,
+    is_required BOOLEAN     NOT NULL DEFAULT FALSE,
+    meta        JSONB       NULL,
+    CONSTRAINT fk_question_quiz
+        FOREIGN KEY (quiz_id) REFERENCES academy_quiz (quiz_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_question_quiz ON academy_quiz_question (quiz_id);
+
+-- -----------------------------------------------------------------------------
+-- 12. academy_quiz_question_option — choices for MC/checkbox/dropdown
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS academy_quiz_question_option (
+    option_id   SERIAL  PRIMARY KEY,
+    question_id INTEGER NOT NULL,
+    position    INTEGER NOT NULL DEFAULT 0,
+    label       TEXT    NOT NULL,
+    is_correct  BOOLEAN NOT NULL DEFAULT FALSE,
+    CONSTRAINT fk_option_question
+        FOREIGN KEY (question_id) REFERENCES academy_quiz_question (question_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_option_question ON academy_quiz_question_option (question_id);
+
+-- -----------------------------------------------------------------------------
+-- 13. academy_quiz_branch — M:N quiz × branch (publish targets)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS academy_quiz_branch (
+    quiz_id   INTEGER NOT NULL,
+    branch_id INTEGER NOT NULL,  -- logical FK to branch.branch_id
+    PRIMARY KEY (quiz_id, branch_id),
+    CONSTRAINT fk_quiz_branch_quiz
+        FOREIGN KEY (quiz_id) REFERENCES academy_quiz (quiz_id) ON DELETE CASCADE
+);
+
+-- -----------------------------------------------------------------------------
+-- 14. academy_quiz_submission — student submissions
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS academy_quiz_submission (
+    submission_id SERIAL       PRIMARY KEY,
+    quiz_id       INTEGER      NOT NULL,
+    user_id       INTEGER      NOT NULL,  -- logical FK to users.user_id
+    branch_id     INTEGER      NULL,      -- logical FK to branch.branch_id
+    submitted_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    score         NUMERIC(6,2) NULL,
+    CONSTRAINT fk_submission_quiz
+        FOREIGN KEY (quiz_id) REFERENCES academy_quiz (quiz_id) ON DELETE CASCADE,
+    CONSTRAINT uq_quiz_submission_student_branch UNIQUE (quiz_id, user_id, branch_id)
+);
+CREATE INDEX IF NOT EXISTS idx_quiz_submission_quiz   ON academy_quiz_submission (quiz_id);
+CREATE INDEX IF NOT EXISTS idx_quiz_submission_user   ON academy_quiz_submission (user_id);
+CREATE INDEX IF NOT EXISTS idx_quiz_submission_branch ON academy_quiz_submission (branch_id);
+
+-- -----------------------------------------------------------------------------
+-- 15. academy_quiz_answer — per-question answer in a submission
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS academy_quiz_answer (
+    answer_id        SERIAL    PRIMARY KEY,
+    submission_id    INTEGER   NOT NULL,
+    question_id      INTEGER   NOT NULL,
+    text_answer      TEXT      NULL,
+    selected_options INTEGER[] NOT NULL DEFAULT ARRAY[]::INTEGER[],
+    is_correct       BOOLEAN   NULL,
+    CONSTRAINT fk_quiz_answer_submission
+        FOREIGN KEY (submission_id) REFERENCES academy_quiz_submission (submission_id) ON DELETE CASCADE,
+    CONSTRAINT fk_quiz_answer_question
+        FOREIGN KEY (question_id) REFERENCES academy_quiz_question (question_id) ON DELETE CASCADE,
+    CONSTRAINT uq_quiz_answer_submission_question UNIQUE (submission_id, question_id)
+);
+
+-- -----------------------------------------------------------------------------
+-- updated_at triggers (keep updated_at fresh on UPDATE)
+-- -----------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION academy_touch_updated_at() RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at := NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_academy_document_updated      ON academy_document;
+DROP TRIGGER IF EXISTS trg_academy_syllabus_table_upd    ON academy_syllabus_table;
+DROP TRIGGER IF EXISTS trg_academy_user_ui_row_upd       ON academy_user_ui_row;
+DROP TRIGGER IF EXISTS trg_academy_course_video_upd      ON academy_course_video;
+DROP TRIGGER IF EXISTS trg_academy_course_exercise_upd   ON academy_course_exercise;
+DROP TRIGGER IF EXISTS trg_academy_exercise_answer_upd   ON academy_exercise_answer;
+DROP TRIGGER IF EXISTS trg_academy_quiz_upd              ON academy_quiz;
+
+CREATE TRIGGER trg_academy_document_updated      BEFORE UPDATE ON academy_document       FOR EACH ROW EXECUTE FUNCTION academy_touch_updated_at();
+CREATE TRIGGER trg_academy_syllabus_table_upd    BEFORE UPDATE ON academy_syllabus_table  FOR EACH ROW EXECUTE FUNCTION academy_touch_updated_at();
+CREATE TRIGGER trg_academy_user_ui_row_upd       BEFORE UPDATE ON academy_user_ui_row     FOR EACH ROW EXECUTE FUNCTION academy_touch_updated_at();
+CREATE TRIGGER trg_academy_course_video_upd      BEFORE UPDATE ON academy_course_video    FOR EACH ROW EXECUTE FUNCTION academy_touch_updated_at();
+CREATE TRIGGER trg_academy_course_exercise_upd   BEFORE UPDATE ON academy_course_exercise FOR EACH ROW EXECUTE FUNCTION academy_touch_updated_at();
+CREATE TRIGGER trg_academy_exercise_answer_upd   BEFORE UPDATE ON academy_exercise_answer FOR EACH ROW EXECUTE FUNCTION academy_touch_updated_at();
+CREATE TRIGGER trg_academy_quiz_upd              BEFORE UPDATE ON academy_quiz            FOR EACH ROW EXECUTE FUNCTION academy_touch_updated_at();
+
+COMMIT;
+
+-- =============================================================================
+-- Done. 15 tables created.
+-- =============================================================================
